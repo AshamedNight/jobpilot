@@ -1,0 +1,24 @@
+Usage: -c search [OPTIONS] [QUERY]
+
+  按关键词和筛选条件搜索职位列表
+
+Options:
+  --url TEXT                BOSS 直聘搜索页 URL（可从网页复制完整筛选条件）
+  --preset TEXT             预设名称（从 boss preset add 保存）
+  --city TEXT               城市名称（如 北京、上海）
+  --salary TEXT             薪资范围（如 10-20K）
+  --experience TEXT         经验要求（如 3-5年）
+  --education TEXT          学历要求（如 本科）
+  --industry TEXT           行业类型，支持逗号分隔多选
+  --scale TEXT              公司规模（如 100-499人），支持逗号分隔多选
+  --stage TEXT              融资阶段（如 已上市、A轮），支持逗号分隔多选
+  --job-type TEXT           职位类型（全职/兼职/实习），支持逗号分隔多选
+  --welfare TEXT            福利筛选（如 双休、五险一金），会逐个检查职位详情
+  --active TEXT             只保留 HR 活跃度不低于该档的职位：online / today / 3d / week / 2w
+                            / month / half-year（也认 3day、3日 等写法）；online
+                            只看列表，其余档位列表看不出时会逐个查职位详情（更慢、风险更高）
+  --page INTEGER            页码
+  --no-cache                跳过缓存
+  --with-score              附加匹配分和原因
+  --sort [relevance|score]  排序方式
+  --help                    Show this message and exit.

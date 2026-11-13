@@ -1,0 +1,127 @@
+# jobpilot · 法务词表与打分规则
+# 改这个文件不用动代码（任务书 §5.1 来源表：本文件是这些键的【唯一】定义处）
+
+# --- 全局阈值 ---
+min_match_score: 60          # 低于此分不打招呼
+salary_floor: 4000           # require_salary_floor 用的绝对下限（元/月）
+
+# --- 方向开关 ---
+# 【R4-12】两条口径必须同时成立：
+#   ① enabled: true 的方向，share 合计 == 1.0
+#   ② enabled: false 的方向，share == 0.0（关闭的方向不参与额度分配）
+# 于是"全部方向合计"也 == 1.0。本文件是合法值 0.6 / 0.2 / 0.0 / 0.2 = 1.0。
+# 【N7】测归一化时用内联 dict 构造 1.1，不依赖本文件。
+directions:
+  enterprise_legal:
+    enabled: true
+    label: "企业法务 / 合同 / 合规"
+    share: 0.6
+    keywords: ["企业法务", "法务专员", "法务经理", "合同审核", "合规"]
+    title_patterns: ["法务", "法律", "合同", "合规", "风控"]
+    require_license_check: false
+    require_salary_floor: true        # 【R4-2】开启：2-3K 的"实习法务"由此硬淘汰
+    salary_floor: 4000
+
+  debt_resolution:
+    enabled: true
+    label: "债务处理 / 不良资产"
+    share: 0.2
+    keywords: ["债务处理", "债务重组", "不良资产", "清收", "法务催收"]
+    title_patterns: ["债务", "不良资产", "清收", "重组"]
+    require_license_check: true      # 必须命中 licensed_employers
+    require_salary_floor: true
+    salary_floor: 5000
+
+  partner_track:
+    enabled: false                   # 默认关：无执业背景，这档不现实
+    label: "法务合伙人 / 授薪合伙人"
+    share: 0.0                       # 【R4-12】enabled: false 的方向不参与额度分配，必须为 0.0
+    keywords: ["法务合伙人", "授薪合伙人"]
+    title_patterns: ["合伙人"]
+    require_license_check: false
+    require_salary_floor: true
+    salary_floor: 8000
+
+  law_firm_junior:
+    enabled: true
+    label: "律所授薪律师 / 律师助理"
+    share: 0.2                       # 【R4-12】0.6 + 0.2 + 0.2 = 1.0（只算 enabled 方向）
+    keywords: ["律师助理", "授薪律师", "实习律师"]
+    title_patterns: ["律师助理", "授薪律师", "实习律师"]
+    require_license_check: false
+    require_salary_floor: true
+    salary_floor: 3000
+
+# --- 白名单：优先于任何黑名单（唯一来源就是本文件，config.yaml 不得重复定义）---
+# 想投某家具体公司，在这里加名字。留空表示不设白名单。
+# 示例：- "某某律师事务所"
+preferred_employers: []
+
+# --- 公司规模加分白名单（可选，R4-11）---
+# 命中 `company_scale` 即 +5；留空表示不启用该加分项。
+# 代码统一用 cfg.get("preferred_scales", [])，不要用 cfg["preferred_scales"]。
+# 示例：["100-499人", "500-999人", "1000-9999人"]
+preferred_scales: []
+
+# --- 持牌校验白名单（require_license_check 用）---
+licensed_employers:
+  - "律师事务所"
+  - "资产管理股份有限公司"     # 持牌 AMC
+  - "地方资产管理"
+
+# --- 招聘方硬淘汰 ---
+is_employer_blacklist:
+  - 投资咨询
+  - 财富管理
+  - 商务咨询
+  - 信息咨询
+  - 咨询管理
+  - 金融服务外包
+
+# --- 标题硬淘汰 ---
+is_title_blacklist:
+  - 催收员
+  - 电话销售
+  - 电销
+  - 保险代理人
+  - 理财顾问
+  - 贷款专员
+  - 招商
+
+# --- JD 硬淘汰 ---
+is_jd_blacklist:
+  - 外访
+  - 上门催收
+  - 电话提醒还款
+  - 催回款
+  - "PS"
+  - 伪造
+  - 规避
+  - 灰色
+
+# --- 执业领域词表（每命中 +8，上限 32）---
+practice_areas:
+  - 合同
+  - 合规
+  - 风控
+  - 公司治理
+  - 股权
+  - 并购
+  - 投融资
+  - 劳动争议
+  - 劳动仲裁
+  - 民商事
+  - 诉讼
+  - 仲裁
+  - 知识产权
+  - 不良资产
+  - 债务重组
+  - 破产
+  - 清收
+  - 尽职调查
+
+# --- 期望薪资（用于"薪资区间重叠 +10"）---
+# 【N6 裁定】此处为唯一定义处。config.yaml 不重复定义。
+expected_salary:
+  low: 5000
+  high: 12000

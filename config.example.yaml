@@ -1,0 +1,259 @@
+# jobpilot 配置模板
+#
+# 用法：复制成 config.yaml 后按本机情况改三处路径
+#   cp config.example.yaml config.yaml
+#
+# 必须改的：
+#   1) accounts[].chrome_profile —— 专用 Chrome 的资料目录（换账号就必须换它）
+#   2) accounts[].data_dir       —— 上游 CLI 的工作目录
+#   3) accounts[].chrome_exe     —— 本机 Chrome 路径
+#
+# 说明：config.yaml 已被 .gitignore 排除，不要提交它（里面有本机绝对路径）。
+
+# jobpilot · 运行参数（进仓库，不含敏感信息）
+# 词表不在这里，在 config/matcher.yaml（见架构 §7.1.1 / 任务书 §5.1 来源表）
+
+adapter: boss              # fake | boss（boss 仅 P2-A 只读；写操作仍 NotImplementedError）
+
+# 【P2-A】BossAdapter 参数。data_dir 自己算绝对路径，绝不碰 ~/.boss-agent/（主号登录态）。
+adapter_options:
+  data_dir: 'C:\Users\<you>\.boss-agent-jobpilot-new'   # 隔离目录；本项目不读、不复制、不备份 ~/.boss-agent/
+  # 【2026-11-04 实测】单页 search 真实耗时 77s / 177s（两次），原来的 60 秒会把
+  #   正常请求当超时切断（真机现象：last_verdict=error、error="search 失败（TIMEOUT）"）。
+  #   这里必须留出"平台慢"的余量，只用来兜住"真的卡死"。到点后整个进程 fail-closed
+  #   （不再调用上游，需重启），所以宁大勿小。
+  timeout_s: 300                    # 单次 CLI 调用上限（秒），到点返回 TIMEOUT 并暂停调用上游
+  active: "today"                  # --active 默认 online：只看列表、零额外详情请求
+  # 【2026-11-06 实测】淄博法务这个查询约 30 条结果：第 1–3 页各 10 条，**第 4 页起是空页**。
+  #   上游在空结果页上会一直等条件满足，等到 timeout_s 才返回 —— 每次轮到第 4 页就白丢 5 分钟，
+  #   再叠加冷却 5 分钟 + 暂停 10 分钟。所以 pacer 的页码轮转只在 1..3 之间转。
+  pages: 3                          # 最多翻几页（上游无 --limit）
+
+target:
+  # 目标为法务方向。词表放在 config/matcher.yaml，此处只引用
+  matcher_config: "config/matcher.yaml"
+
+  # 【已确认】主投淄博，周边城市作为补充
+  cities: ["淄博"]
+  cities_nearby: ["济南", "潍坊"]
+  cities_nearby_enabled: true      # 开关：淄博岗不够时才启用
+
+  # 【P2-A 补丁 §2】真机 search 必须走 --url：上游 CITY_CODES 只有 40 个城市，
+  #   '淄博'/'潍坊' 都不在表里（只有 '济南' 在），`--city 淄博` 会直接
+  #   INVALID_PARAM: 未知城市: 淄博。留空则不传 --url（fake 路径不受影响）。
+  #   真机验收时填（city=101120300 就是淄博、101120600 是潍坊；position 是 UI 私有参数会被丢弃，别填）：
+  #   https://www.zhipin.com/web/geek/jobs?city=101120300&query=%E6%B3%95%E5%8A%A1
+  search_url: "https://www.zhipin.com/web/geek/jobs?city=101120300&position=150203&query=%E6%B3%95%E5%BE%8B%E9%A1%BE%E9%97%AE"
+
+  # 【2026-11-06】多关键词候选池。**这不是"海投"，是补池子**：
+  #   claim 是永久的（发过就不发），单个关键词在淄博只有约 30 条（3 页），
+  #   一天 15 条 → 第二天见底、第三天整天 skipped。
+  #   pacer 每次 pass 只用其中一个（关键词 + 页码轮转），**不增加请求频率**，
+  #   反而让请求分散到不同查询上（比每 2 分钟刷同一个 URL 更像人）。
+  # 关键词选择原则：全部落在法务方向。`direct_greet` 不做打分，
+  #   **关键词就是唯一的筛子** —— 别往里加"销售/客服/催收"这类换取数量的词。
+  # 留空则只用上面的 search_url。
+  # 【闭环 4 · 2026-11-12】声明式搜索目标：keywords × cities 启动时自动展开成 URL。
+  #   为什么改：原来的 9 条手写 URL 全带 city=101120600（潍坊），而注释写着"淄博=101120300"，
+  #   结果 124 条招呼里 82 条打给了潍坊。手写 URL 这种形状错一处就是一处静默故障。
+  #   展开逻辑见 app/core/search_targets.py；`search_urls` 非空时以显式为准（保留手工调试能力）。
+  keywords:
+    - 法律顾问
+    - 法务
+    - 合同审核
+    - 律师助理
+    - 合规
+    - 知识产权
+    - 实习律师
+    - 法务主管
+  cities:
+    - {name: 淄博, code: "101120300"}
+    # 【2026-11-12 开】用户确认可投潍坊。8 词 × 2 城 = 16 条搜索，供给翻倍。
+    #   为什么现在就必须开：淄博已打 124 个、库里只剩 37 个（多为催收/外地岗），
+    #   单城撑不住 25 条/天，更撑不住 50。供给不足 → 反复空搜 → 这才是 11-11/11-12 风控的主因。
+    - {name: 潍坊, code: "101120600"}
+  search_urls: []
+
+  # 【已确认】接受"远程"标注的岗位
+  allow_remote: true
+
+  # 【R4-3】仅用于 Phase 2 构造 search 请求时过滤标题；matcher 不读这个键。
+  # 注意：不含"实习"——law_firm_junior 的 keywords 里明确要搜"实习律师"，加了会自断一条线。
+  exclude_title_words: ["兼职", "外包", "驻场"]
+
+  # 账号定位：demo = 展示用（不要求法务背景）；real = 真实求职
+  profile_mode: demo
+
+  # 用户没有执业年限和资格证，这两项不参与打分
+  my_experience_years: null
+
+  # 【R4-1 裁定】preferred_employers 不在这里定义，唯一来源是 config/matcher.yaml。
+  # 原因：它是 matcher 的硬淘汰豁免 + 加分项，属于打分规则，不属于运行参数。
+  # 这里写了会和 matcher.yaml 同名键冲突，load_config() 直接抛 StartupError。
+
+  # 【N6 裁定】expected_salary 不在 config.yaml 定义，唯一来源是 config/matcher.yaml。
+
+quota:
+  # 【2026-11-03 用户拍板】单账号每日 50 条，两个账号合计 100 条/日。
+  #   两个号不并发、不同时跑（同一出口 IP 多号并发是风控重灾区），串行使用。
+  #   注意：这里的 50 是"账号权益能接受的量"，不代表平台今天一定给到——
+  #   实际能发多少由平台侧额度决定，本系统只保证"发得慢、发得像人"。
+  daily_greet: 50           # 单账号日目标上限（ramp 爬到顶时的值）
+  daily_greet_max: 50       # 硬上限，永不突破
+  daily_greet_live_cap: 50  # 稳定运行两周后仍按 50，不再往上加
+  daily_reply: 50
+  daily_exchange: 10
+
+  # 【P2-B §6.4】detail 每日上限：实验期用宽松值（裁定 2.4：限额是保险不是功能，
+  #   第一次跑通时限额太紧会误判成代码 bug）；跑通后按 B-7 收回 30。
+  daily_detail: 50
+  # 【P2-B §6.3】单轮上限：由上游 20 次/分钟共享预算倒推（9 次固定开销 + N ≤ 20），
+  #   硬上限 20，超过启动即 StartupError。
+  detail_batch: 2
+
+schedule:
+  sweep_at: ["09:30", "20:30"]
+  followup_every_minutes: 20
+
+gate:
+  greet: auto
+  reply: review
+  exchange: review
+
+# 【闭环 1】招呼文案池：资产文件，禁止把文案写回 Python。
+#   启动即校验（≥20 条 / 渲染 ≤60 字 / 无编造量化资历），坏配置服务起不来。
+greet:
+  templates: "config/prompts/greet_templates.yaml"
+  max_chars: 60
+
+# 【闭环 1】节奏引擎：把"一次发完"改成"一条一条按人的节奏发"。
+#   真机事故（11 条 / 77 秒 / 同一句话）的三根支柱在这里被拆开：
+#     - interval_s   相邻两条的静默，硬下限 60s（写小于 60 启动直接报错）
+#     - round        连发几条后长休，超过 8 条启动报错
+#     - round_gap_s  轮间长休，让行为曲线不是一条直线
+pacing:
+  enabled: true
+  auto_start: false          # 开机自动跑 = 风险太大，闭环 5 再做守护进程
+  segments:                  # 三个时段，每段约占日目标的 1/3
+    - ["09:00", "12:00"]
+    - ["14:00", "18:00"]
+    - ["19:00", "21:30"]
+  interval_s: [90, 240]      # 两条之间 90–240 秒（原来是 3 秒）
+  round: [3, 5]              # 一轮 3–5 条
+  round_gap_s: [900, 1800]   # 轮间 15–30 分钟
+  # 爬坡：15 → 20 → 25 → 30 → 40 → 50（每档 2 天，目标 11-23 到 50）。
+  #
+  # 【2026-11-12 改】原来是 [15,25,40,50] + 每档 7 天，问题很实在：
+  #   ① 日历式爬坡和真实状态脱节 —— 我们连续几天一条没发出去，日历照样进下一档；
+  #   ② "50 条/天"里 50 是第 4 周才有，太慢。
+  # 现在把粒度做成 `ramp_step_days`（唯一个旋钮）：
+  #   设大 = 更保守；设 1 = 每天升一档（只在连续多天零风控时才敢这么干）。
+  # 阶梯本身仍然逐级 +50%~66%，没有一步从 15 直接跳到 50 —— 那等于跳过一个验证档。
+  # 【2026-11-12 用户决定】节奏参数本身没问题，卡住都是"被打断"造成的 ——
+  #   所以不再从 15 重新养一遍，直接 25 起步：25 → 30 → 40 → 50（每档 2 天，11-19 到 50）。
+  #   15 那一档的验证结论已经在 11-09/11-10 拿到了（两天各 15 条、零风控）。
+  ramp: [25, 30, 40, 50]
+  ramp_step_days: 2
+  ramp_start: "2026-11-13"
+  cooldown_s:                # 判定码 → 冷却秒数
+    limit: 2700              # 限流：等一个 45 分钟窗口
+    unconfirmed: 600         # 结果不确定：10 分钟后再试
+    auth: 3600               # 登录态问题：1 小时，等人处理
+  halt_hours: 24             # 命中风控且**累计到阈值**才熔断 24 小时（重启也不解除）
+  # 【2026-11-04 借社区口径（drydraft/boss-recruit-kit）】风控处置分两级：
+  #   首次命中 → 冷却 30–60 分钟，然后小批量（3–5 条）试跑；
+  #   同日第 halt_after_risks 次 → 才升到 24h 熔断。
+  # 原因：一次偶发就锁死一天，会把三天验证窗口整个扔掉；两次还中才说明不是偶发。
+  risk_cooldown_s: [1800, 3600]
+  halt_after_risks: 2
+
+llm:
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-chat"
+  temperature: 0.7
+  max_tokens: 300
+  timeout_s: 30
+
+  # 【P2-C 决策 2】生成策略：off / cache / batch / hybrid / live
+  #   off     纯模板拼装，不联网，零 token  ← 默认，不花钱
+  #   cache   查 llm_calls 的 prompt_hash，命中即用，未命中回落模板
+  #   batch   用 data/openers.jsonl 预生成库轮转，用完回落模板
+  #   hybrid  缓存 → 预生成 → 真模型，受 daily_call_cap 约束
+  #   live    每次直接调模型
+  # 任何模式下出错/超时/超预算/无 key 都退回模板，流水线不停（回落会留痕）。
+  mode: "off"
+
+  # 【P2-C 决策 4】每日真模型调用上限：到顶后一律降级模板
+  daily_call_cap: 100
+
+  # 预生成库路径（相对项目根；留空则用 data/openers.jsonl）
+  pregen_path: "data/openers.jsonl"
+
+# --------------------------------------------------------------------------- #
+# 【2026-11-13】安全阀：每日探测配额
+#   撞过的 5 次风控里至少 3 次是"诊断性请求"自己敲出来的。靠自控不靠谱，
+#   做成会失败的硬限制：recover 的单页探测、probe_greet_text 的招呼探针都计数。
+#   超了直接拒绝执行，要突破必须显式 --force（会被记录）。
+# --------------------------------------------------------------------------- #
+safety:
+  probe_quota_per_day: 3
+
+server:
+  host: "127.0.0.1"    # 只绑回环，禁止 0.0.0.0
+  port: 8010
+
+# --------------------------------------------------------------------------- #
+# 【闭环 3 · 2026-11-12】多账号：账号 = 库 + 上游目录 + Chrome profile + 调试端口
+#
+#   为什么必须四件套一起换：本项目是 existing-browser 模式，CLI 不读 session.enc，
+#   身份完全由 Chrome profile 的实时登录态决定。只换 data_dir 换不了号；
+#   同一 profile 也不能在两个端口上同时开。切换是**停机切换**，不是并行。
+#
+#   切换：python -m app.tools.accounts switch <id>
+#   启动：python -m app.tools.launch --detach --cap 15   （按指针装环境）
+#
+#   校验在启动期做：缺字段 / id 重名 / 端口冲突 → 服务直接起不来（宁可起不来，不可发错号）。
+# --------------------------------------------------------------------------- #
+accounts:
+  - id: b
+    name: "主账号（自己改）"
+    db: "data/jobpilot-new.db"                                   # 我们的库（额度/claim/会话）
+    data_dir: "C:/Users/<you>/.boss-agent-jobpilot-new"        # 上游工作目录（含 budget 账本、风险锁）
+    budget_dir: "C:/Users/<you>/.boss-agent-test"
+    chrome_profile: "C:/Users/<you>/chrome-boss"
+    cdp_port: 9333
+    service_port: 8010          # 这个账号自己的控制台（并行时每号一个）
+    enabled: true
+    chrome_exe: "C:/Program Files/Google/Chrome/Application/chrome.exe"
+
+  # A 号（求职新号）：**当"探针号"用** —— 写操作（打招呼）风险最高，
+  #   先拿低价值号试水，主力号（B）不冒险。
+  #   首次使用：(1) 启动专用浏览器登录 A 号 (2) 把 enabled 改成 true
+  - id: a
+    name: "探针号（可选，自己改）"
+    db: "data/jobpilot-a.db"
+    data_dir: "C:/Users/<you>/.boss-agent-jobpilot-a"
+    budget_dir: "C:/Users/<you>/.boss-agent-test-a"
+    chrome_profile: "C:/Users/<you>/chrome-boss-a"
+    cdp_port: 9223
+    service_port: 8020
+    chrome_exe: "C:/Program Files/Google/Chrome/Application/chrome.exe"
+    enabled: false          # 先登录过 A 号再改 true（配置里有它不会自动跑）
+
+  # 企业招聘端的示例（需要企业认证账号，目前上游未暴露 CLI 命令）：
+  # 注意 profile 与端口都必须与 B 号不同，否则校验会直接拒绝启动。
+  # - id: a
+  #   name: "A 号 · 企业账号"
+  #   db: "data/jobpilot-a.db"
+  #   data_dir: "C:/Users/<you>/.boss-agent-jobpilot-a"
+  #   budget_dir: "C:/Users/<you>/.boss-agent-test-a"
+  #   chrome_profile: "C:/Users/<you>/chrome-boss-a"
+  #   cdp_port: 9223
+  #   service_port: 8020
+  #   chrome_exe: "C:/Program Files/Google/Chrome/Application/chrome.exe"
+  #   # 【错峰】第二个号的时段整体后移 1 小时：两个号同一时间敲门 = 把"同 IP 多号"的风险叠满
+  #   pacing:
+  #     segments: [["10:00", "13:00"], ["15:00", "19:00"], ["20:00", "22:30"]]
+  #   # 【每号自己的日目标】不写就继承全局 quota
+  #   quota:
+  #     daily_greet: 50

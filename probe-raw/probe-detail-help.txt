@@ -1,0 +1,8 @@
+Usage: -c detail [OPTIONS] SECURITY_ID
+
+  查看职位完整信息（职位描述、地址、招聘者信息）
+
+Options:
+  --lid TEXT     列表项 ID（从 search 结果获取，可选）
+  --job-id TEXT  职位加密 ID（提供时走 httpx 快速通道，跳过浏览器）
+  --help         Show this message and exit.

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    accessibilityFlags 里两个都要：
+
+    - flagReportViewIds：不带它，节点的 viewIdResourceName 全是 null，
+      只能用文字匹配（"立即沟通"），一个 App 改版就全废。
+    - flagRetrieveInteractiveWindows：能拿到所有窗口，弹窗（打招呼语编辑框、
+      "操作频繁"提示）才不会漏掉。
+
+    canRetrieveWindowContent 必须 true，否则 rootInActiveWindow 恒为 null。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/accessibility_desc"
+    android:notificationTimeout="100" />

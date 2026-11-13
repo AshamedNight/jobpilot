@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>jobpilot · 求职助手</title>
+<link rel="icon" href="data:,">
+<!-- 【闭环 6 前期】PWA：让手机能"添加到主屏幕"当轻量控制台。
+     真正打 APK（Flutter/TWA）要等闭环 1–2 验收之后，且需要把服务暴露到局域网（安全改动）。 -->
+<link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="theme-color" content="#f6f7f9">
+  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="jobpilot">
+<meta name="theme-color" content="#111827">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="jobpilot">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div id="statusbar" class="page">
+
+  <header class="head">
+    <div class="head-main">
+      <div class="brand">jobpilot</div>
+      <div class="head-sub" id="s-summary">正在读取状态…</div>
+    </div>
+    <div class="head-actions">
+      <button id="btn-notify" class="btn btn-ghost" type="button" title="发送桌面通知：熔断、目标达成、拿到微信号">开启通知</button>
+      <button id="btn-notify-test" class="btn btn-ghost hidden" type="button" title="立刻弹一条测试通知">测试通知</button>
+      <button id="btn-refresh" class="btn btn-ghost" type="button">刷新</button>
+    </div>
+  </header>
+
+  <!-- 首次启动向导（2026-11-13）：只有「没配置好」时才显示，老用户永远看不到 -->
+  <section class="card setup" id="setup-card" hidden>
+    <div class="setup-head">
+      <h2 class="panel-title">三步开始</h2>
+      <span class="setup-step" id="setup-step">第 1 步 / 共 3 步</span>
+    </div>
+
+    <div class="setup-row">
+      <label for="setup-chrome">Chrome 程序</label>
+      <div class="setup-input">
+        <input id="setup-chrome" type="text" placeholder="C:/Program Files/Google/Chrome/Application/chrome.exe">
+        <button id="setup-detect" class="btn btn-ghost" type="button">自动查找</button>
+      </div>
+      <div class="setup-hint" id="setup-chrome-hint">必须是真的 Chrome（不是 Edge、不是打包版）</div>
+    </div>
+
+    <div class="setup-row">
+      <label for="setup-profile">专用浏览器目录</label>
+      <div class="setup-input">
+        <input id="setup-profile" type="text" placeholder="点右边用推荐值">
+        <button id="setup-suggest" class="btn btn-ghost" type="button">用推荐值</button>
+      </div>
+      <div class="setup-hint">与你的日常浏览器隔离：登录态互不影响</div>
+    </div>
+
+    <div class="setup-row">
+      <label for="setup-data">数据目录</label>
+      <div class="setup-input">
+        <input id="setup-data" type="text" placeholder="点右边用推荐值">
+      </div>
+      <div class="setup-hint">存去重账本与风险锁；删掉等于重置</div>
+    </div>
+
+    <div class="setup-actions">
+      <button id="setup-save" class="btn" type="button">① 保存配置</button>
+      <button id="setup-launch" class="btn btn-ghost" type="button" disabled>② 启动浏览器并登录</button>
+      <button id="setup-verify" class="btn btn-ghost" type="button" disabled>③ 我登录好了</button>
+    </div>
+    <div class="setup-log" id="setup-log"></div>
+  </section>
+
+  <!-- 连接 BOSS（闭环 0）：登录发生在**专用浏览器窗口**里，本页只负责发起与显示状态 -->
+  <section class="card connect-strip" id="connect-strip">
+    <div class="connect-main">
+      <div class="connect-title">
+        账号连接
+        <span id="conn-state" class="pill">读取中…</span>
+      </div>
+      <div class="connect-note" id="conn-note">正在读取连接状态…</div>
+    </div>
+    <button id="btn-connect" class="btn btn-primary" type="button">连接 BOSS</button>
+  </section>
+
+  <!-- 风控锁：红色横幅，不可关闭 -->
+  <div id="banner-risk" class="banner banner-danger hidden" role="alert">
+    <div class="banner-body">
+      <div class="banner-title">平台已锁定访问</div>
+      <div class="banner-text">平台已锁定访问，发送会被拒绝。请先人工处理，不要在页面上重试。</div>
+    </div>
+  </div>
+
+  <!-- 告警：黄色横幅 -->
+  <div id="warn" class="banner banner-warn hidden"></div>
+
+  <!-- KPI 行 -->
+  <section class="kpi-row">
+    <article class="card kpi">
+      <div class="kpi-label">今日进度 <span class="kpi-label-hint">节奏目标</span></div>
+      <div class="kpi-value">
+        <b id="kpi-greet-used">…</b><span class="kpi-slash">/</span><span id="kpi-greet-max">…</span>
+      </div>
+      <div class="bar"><i id="kpi-greet-bar" class="bar-fill" style="width:0%"></i></div>
+      <div class="kpi-note" id="kpi-greet-note">…</div>
+    </article>
+    <article class="card kpi">
+      <div class="kpi-label">转化 <span class="kpi-label-hint">闭环 2</span></div>
+      <div class="kpi-value">
+        <b id="kpi-replied">…</b><span class="kpi-slash">回复</span>
+      </div>
+      <div class="kpi-tags">
+        <span class="pill" id="kpi-wechat">微信 …</span>
+        <span class="pill" id="kpi-rejected">拒绝 …</span>
+      </div>
+      <div class="kpi-note" id="kpi-funnel-note">…</div>
+    </article>
+    <article class="card kpi">
+      <div class="kpi-label">运行状态</div>
+      <div class="kpi-value kpi-value-sm"><b id="kpi-run-state">…</b></div>
+      <div class="caps-block">
+        <span id="s-caps-text" class="pill-group-label">能力</span>
+        <span id="s-caps" class="pill-group">—</span>
+      </div>
+      <div class="kpi-note" id="kpi-run-note">…</div>
+    </article>
+  </section>
+
+  <div class="grid">
+
+    <main class="col-main">
+      <section class="card panel">
+        <nav class="tabs" role="tablist">
+          <button id="tab-jobs" class="tab is-active" type="button" role="tab" data-panel="panel-jobs">岗位</button>
+          <button id="tab-conversations" class="tab" type="button" role="tab" data-panel="panel-conversations">会话</button>
+          <button id="tab-wechat" class="tab" type="button" role="tab" data-panel="panel-wechat">微信号<span id="tab-wechat-count" class="tab-count"></span></button>
+          <button id="tab-pending" class="tab" type="button" role="tab" data-panel="panel-pending">待人工</button>
+        </nav>
+        <div id="panel-jobs" class="panel-body" role="tabpanel">
+          <div id="jobs"></div>
+        </div>
+        <div id="panel-conversations" class="panel-body hidden" role="tabpanel">
+          <div id="conversations"></div>
+        </div>
+        <div id="panel-wechat" class="panel-body hidden" role="tabpanel">
+          <div class="panel-hint">已拿到 / 正在交换的会话。号码默认不显示——点「显示号码」才向服务端单独取一次（号码不进列表接口）。</div>
+          <div id="wechat"></div>
+        </div>
+        <div id="panel-pending" class="panel-body hidden" role="tabpanel">
+          <div id="pending"></div>
+        </div>
+      </section>
+
+      <section class="card panel" id="pacing-panel">
+        <div class="panel-head panel-head-row">
+          <h2 class="panel-title">今日节奏</h2>
+          <span id="pace-badge" class="tag tag-neutral">未启动</span>
+        </div>
+        <div class="pace-body">
+          <div class="pace-main">
+            <div class="pace-num">
+              <b id="pace-used">…</b><span class="pace-slash">/</span><span id="pace-target">…</span>
+            </div>
+            <div class="bar"><i id="pace-bar" class="bar-fill" style="width:0%"></i></div>
+            <div class="kpi-note" id="pace-note">正在读取…</div>
+          </div>
+          <div class="pace-side">
+            <dl class="kv kv-sub">
+              <dt>当前时段</dt><dd id="pace-segment">…</dd>
+              <dt>下一次</dt><dd id="pace-next">…</dd>
+              <dt>本调节奏</dt><dd id="pace-rhythm">…</dd>
+            </dl>
+          </div>
+        </div>
+        <div class="pace-warn hidden" id="pace-warn"></div>
+        <div class="actions">
+          <div class="action">
+            <button id="btn-pace-start" class="btn btn-primary" type="button">开始按节奏发</button>
+            <div class="action-note">一条一条发，不一次性发完</div>
+          </div>
+          <div class="action">
+            <button id="btn-pace-stop" class="btn" type="button">停止</button>
+            <div class="action-note" id="pace-stop-note"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card panel">
+        <div class="panel-head">
+          <h2 class="panel-title">操作</h2>
+        </div>
+        <div class="actions">
+          <div class="action">
+            <button id="btn-sweep" class="btn btn-primary" type="button">跑一轮</button>
+            <div class="action-note">会真实打招呼，受额度限制</div>
+          </div>
+          <div class="action">
+            <button id="btn-followup" class="btn" type="button">跟进一轮</button>
+            <div class="action-note"></div>
+          </div>
+          <div class="action">
+            <button id="btn-pause" class="btn" type="button">暂停</button>
+            <div class="action-note"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card panel">
+        <details class="log-wrap">
+          <summary class="log-summary">运行日志</summary>
+          <div id="log-latest" class="log-latest">还没有运行记录。</div>
+          <pre id="log" class="log-raw"></pre>
+        </details>
+      </section>
+    </main>
+
+    <aside class="col-side">
+
+      <section class="card side-block">
+        <h2 class="side-title">适配器与风控</h2>
+        <dl class="kv">
+          <dt>适配器</dt><dd id="s-adapter">…</dd>
+          <dt>风控锁</dt><dd id="right-risk">…</dd>
+        </dl>
+      </section>
+
+      <section class="card side-block">
+        <h2 class="side-title">额度与口径</h2>
+        <dl class="kv kv-sub">
+          <dt>节奏目标</dt><dd id="side-pace-target">…</dd>
+          <dt>配置额度</dt><dd id="s-quota">…</dd>
+          <dt>全局暂停</dt><dd id="s-paused">…</dd>
+          <dt>数据文件</dt><dd id="side-db">…</dd>
+        </dl>
+      </section>
+
+      <section class="card side-block">
+        <h2 class="side-title">系统</h2>
+        <dl class="kv kv-sub">
+          <dt>LLM</dt><dd id="s-llm">…</dd>
+          <dt>上游版本</dt><dd id="right-upstream">…</dd>
+        </dl>
+        <div id="right-llm" class="side-note"></div>
+        <div id="right-pending-mods" class="side-note"></div>
+        <div id="right-last-error" class="side-note"></div>
+      </section>
+
+    </aside>
+
+  </div>
+
+</div>
+
+<script src="/static/notify.js"></script>
+  <script src="/static/app.js"></script>
+  <script>
+    // 闭环 6：注册 service worker（断网也能打开界面；/api/ 永远走网络）
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>

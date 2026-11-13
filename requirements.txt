@@ -1,0 +1,14 @@
+# jobpilot - Phase 1 (skeleton) dependencies, all pinned
+# Fully offline at this stage: no HTTP client libs, no browser automation, no LLM SDK
+fastapi==0.115.6
+uvicorn==0.34.0
+PyYAML==6.0.2
+
+# --- test only ---
+pytest==8.3.4
+httpx==0.28.1          # required by fastapi.testclient; test-only, never hits the network
+
+# --- upstream CLI (P2-A) ---
+# Probe G-5: upstream version was unpinned. Pin it so field renames cannot silently break the adapter.
+# /api/status.upstream_version is compared against this value; mismatch raises a warning (no behavior change).
+boss-agent-cli==3.0.1

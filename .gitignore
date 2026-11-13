@@ -1,0 +1,35 @@
+.env
+data/
+.venv/
+__pycache__/
+*.pyc
+*.db
+*.db-wal
+*.db-shm
+.pytest_cache/
+
+# ---- 2026-11-13 开源/简历化：以下内容绝不入库 ----
+.venv2/
+*.log
+# 本机配置（含绝对路径与账号名）：只提交 config.example.yaml
+config.yaml
+# 运行产物
+data/*.db
+data/*.json
+data/*.jsonl
+pacer_state*.json
+probe_budget.json
+supervise.log
+# 浏览器资料（含 cookie / session，绝不能提交）
+chrome-boss*/
+.boss-agent*/
+# ---- 2026-11-13 发布：以下同样绝不入库 ----
+# 打包产物：53MB 二进制，CI 会重新生成；进仓库后每次 clone 都要拖一遍
+dist/
+build/
+# 历史配置备份：里面有本机绝对路径（C:\Users\<用户名>\...）
+config.yaml.bak-*
+*.bak-*
+# PyInstaller / Inno 的中间产物
+*.spec.bak
+

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JobPilot</string>
+    <string name="service_label">JobPilot 界面读取</string>
+    <string name="accessibility_desc">用于读取 BOSS 直聘界面上的职位信息，辅助完成打招呼操作。只在你点击「开始」后读取当前屏幕，不上传任何数据。</string>
+
+    <string name="status_unknown">无障碍：未开启</string>
+    <string name="btn_accessibility">开无障碍</string>
+    <string name="btn_boss">打开 BOSS</string>
+    <string name="btn_dump">抓取界面</string>
+    <string name="btn_copy">复制结果</string>
+    <string name="hint">用法：先在 BOSS 里打开搜索结果页，再切回这里点「抓取界面」——抓到的是你上一次看到的界面。抓完点「复制结果」发给开发，用来校准选择器。</string>
+</resources>

@@ -1,0 +1,31 @@
+# 开场白模板资产（P2-C §4.5）
+#
+# 这是**资产**，不是代码。文案禁止硬编码进 Python。
+# 约束与 config/prompts/opener.md 完全一致：
+#   - 总长度 ≤ 60 字（由 OPENER_MAX_CHARS 截断，本文件 max_chars 不得大于它）
+#   - 禁止出现：工作年限 / 案件数量 / 执业证号 / 胜诉率 / 客户名称
+#     启动时由 TemplateStore 校验，命中即 StartupError（不静默降级）
+#
+# 选择规则（确定性，禁止 random / 字典序）：
+#   1. 每个模板的 match_words 与 job.title 比命中数，命中最多的一组胜出
+#   2. 命中数为 0（无命中）→ 只在 match_words 为空的兜底模板里选
+#   3. 组内按**本文件声明顺序**排列，用 sha256(job_id) % len(group) 做变体轮转
+#      len(group) == 1 时即为"声明顺序在前的那条"
+#   4. 同一个 job_id 无论生成多少次，结果恒定
+
+version: 1
+max_chars: 60
+
+templates:
+  # 兜底：match_words 为空，任何岗位都能用。必须声明在最前面。
+  - id: t_general
+    match_words: []
+    text: "您好，看到贵司在招{title}。我在合同审核与合规方面有实操经验，方便的话想了解下岗位细节。"
+
+  - id: t_contract
+    match_words: ["合同", "合规", "风控"]
+    text: "您好，看到贵司在招{title}。我做过合同审核与合规风控相关的实际工作，想和您了解一下岗位要求。"
+
+  - id: t_debt
+    match_words: ["债务", "不良资产", "清收"]
+    text: "您好，看到贵司在招{title}。我对债务处置流程和合规边界比较熟悉，方便的话想聊聊。"
