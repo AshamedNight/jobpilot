@@ -4,14 +4,17 @@
 ;       "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\inno\jobpilot.iss
 ; 产物：dist\installer\JobPilot-Setup-0.1.0.exe
 ;
-; 三个刻意的选择：
+; 【2026-11-13 修】第一次 CI 在这里 0 秒失败，两个原因：
+;   1. Inno Setup 的 section 条目**不支持反斜杠续行** —— 我把它当成 shell 用了，
+;      续行的后半截被当成新条目解析 → 语法错误。现在每条都写在一行里。
+;   2. ArchitecturesAllowed=x64compatible 是 Inno 6.3 才有的值，choco 装的可能是 6.2
+;      → 未知值报错。改成 6.0 起就有的 x64。
 ;
-; 1. **装到 %LocalAppData%，不装 Program Files。** 服务把 config.yaml 和 data\
-;    写在"当前工作目录"，装进 Program Files 后普通用户没有写权限 →
-;    首次运行就写配置失败。per-user 安装还免掉 UAC 弹窗。
-; 2. **PrivilegesRequired=lowest。** 不需要管理员，公司电脑也能装。
-; 3. **不打包 Chrome。** 只检测并提示；Chrome 必须是用户机器上真实的那个，
-;    塞一个 Chromium 进来会改变指纹，等于换了个运行环境。
+; 三个刻意的选择：
+; 1. 装到 %LocalAppData%，不装 Program Files —— 服务把 config.yaml 和 data\
+;    写在"当前工作目录"，装进 Program Files 后普通用户没有写权限，首次运行就失败。per-user 还免 UAC。
+; 2. 必须自带一份 config.yaml —— 否则死循环：没有配置→服务起不来→向导没机会显示。
+; 3. 不打包 Chrome，只检测并提示 —— 塞 Chromium 会改变指纹，等于换了个运行环境。
 
 #define AppName "JobPilot"
 #define AppVersion "0.1.0"
@@ -32,23 +35,18 @@ OutputBaseFilename=JobPilot-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 AllowNoIcons=yes
-
-[Languages]
-Name: "zh"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务："
 Name: "autostart"; Description: "登录 Windows 后自动启动（推荐）"; GroupDescription: "附加任务："
 
 [Files]
-; onedir 产物：exe + _internal（app/web、config、依赖全在里面）
 Source: "{#RepoRoot}\dist\jobpilot\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; 首次运行需要一份 config.yaml：有就不覆盖，卸载也不删（用户改过的配置是资产）
 Source: "{#RepoRoot}\config.example.yaml"; DestDir: "{app}"; DestName: "config.yaml"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Icons]
@@ -58,17 +56,13 @@ Name: "{group}\卸载 {#AppName}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
-  ValueName: "JobPilot"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "JobPilot"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
-Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Description: "立即启动 {#AppName}"; \
-  Flags: nowait postinstall skipifsilent
-Filename: "http://127.0.0.1:8010"; Description: "打开控制台（服务启动约需 3 秒，打不开就刷新一次）"; \
-  Flags: shellexec nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Description: "立即启动 {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "http://127.0.0.1:8010"; Description: "打开控制台（服务启动约需 3 秒，打不开就刷新一次）"; Flags: shellexec nowait postinstall skipifsilent
 
 [UninstallDelete]
-; 只删日志和缓存；config.yaml 与 data\（库里是已打过的岗位、会话）留给用户
 Type: files; Name: "{app}\*.log"
 Type: filesandordirs; Name: "{app}\__pycache__"
 
@@ -78,9 +72,9 @@ var
   Candidate: String;
 begin
   Result := '';
-  if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe', '', Candidate) then
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe', '', Candidate) then
     Result := Candidate;
-  if (Result = '') and RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe', '', Candidate) then
+  if (Result = '') and RegQueryStringValue(HKEY_CURRENT_USER, 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe', '', Candidate) then
     Result := Candidate;
   if Result = '' then
   begin
