@@ -53,6 +53,22 @@ BLOCKED_SECONDS = 60
 ERROR_STREAK_COOLDOWN = 1800
 ERROR_STREAK_LIMIT = 3
 
+#: `TIMEOUT` 单独用更低的阈值。
+#: 依据：2026-11-14 的链条是 TIMEOUT → TIMEOUT → ENVIRONMENT_RISK，
+#: 只差一次就到 3 轮，但风控已经写进锁文件了。
+#: TIMEOUT 表示页面根本打不开（不是网络抖动），此时继续敲门只会留下
+#: "短时间内反复请求且全部失败"的形状。
+TIMEOUT_STREAK_LIMIT = 2
+
+
+def streak_limit_for(error_text: str | None) -> int:
+    """同一类错误连续几轮之后该拉长冷却。
+
+    抽成函数是为了能单测——这段判定一旦写错，后果是"该停的时候没停"，
+    而它埋在 `_absorb` 里只能靠整轮模拟才测得到。
+    """
+    return TIMEOUT_STREAK_LIMIT if "TIMEOUT" in (error_text or "") else ERROR_STREAK_LIMIT
+
 
 class _ShimRequest:
     """最小 Request 替身：`run_direct_greet_pass` 只用 `request.app.state.*`。"""
@@ -625,13 +641,23 @@ class Pacer:
 
         streak = self._track_error_streak(verdict)
         cooldown_s = pacing_mod.cooldown_for(verdict, self._pcfg)
-        # 同一类错误连续 3 轮以上：拉长到 30 分钟。
+        # 同一类错误连续多轮：拉长到 30 分钟。
         # 这类失败（DB 锁、CLI 卡死、参数非法）**重试不会自愈**，继续按 5 分钟敲只是攒痕迹。
-        if streak >= ERROR_STREAK_LIMIT and cooldown_s < ERROR_STREAK_COOLDOWN:
+        #
+        # 【2026-11-14】TIMEOUT 的阈值单独降到 2 轮。现场链条：
+        #   14:47 TIMEOUT（300 秒页面打不开）→ 14:57 TIMEOUT → 15:02 ENVIRONMENT_RISK。
+        #   只差一次就到 3 轮阈值，而风控已经落下来了。
+        # 为什么 TIMEOUT 该更早停：它表示**页面根本打不开**，不是偶发网络抖动。
+        # 页面打不开还按 5–10 分钟反复敲，平台看到的正是"短时间内反复请求且全部失败"，
+        # 那是最容易被判环境的形状。
+        is_timeout = "TIMEOUT" in (self.last_error or "")
+        limit = streak_limit_for(self.last_error)
+        if streak >= limit and cooldown_s < ERROR_STREAK_COOLDOWN:
             cooldown_s = ERROR_STREAK_COOLDOWN
             log.error(
-                "同一错误连续 %s 轮（%s）：改为长冷却 %ss，停止空转敲门",
+                "同一错误连续 %s 轮（%s%s）：改为长冷却 %ss，停止空转敲门",
                 streak,
+                "TIMEOUT " if is_timeout else "",
                 (self.last_error or "")[:60],
                 cooldown_s,
             )

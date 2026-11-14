@@ -3,6 +3,26 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// 【2026-11-14】版本号从 CI 注入（tag v0.3.0 → 0.3.0），本地不传就用默认值。
+// 之前 versionCode 一直是 1：发第二个包时手机可能把新包当旧包，覆盖安装会失败；
+// 用户也没法从「设置 → 应用信息」分清装的是哪一版。
+// versionCode 用 major*10000 + minor*100 + patch，单调递增。
+val versionFromCi = (System.getenv("APP_VERSION") ?: "").trim().removePrefix("v")
+val appVersionName = if (versionFromCi.isEmpty()) "0.3.0" else versionFromCi
+val versionParts = appVersionName.split(".").map { part ->
+    part.filter { ch -> ch in '0'..'9' }.toIntOrNull()
+}
+val major = versionParts.getOrNull(0)
+val minor = versionParts.getOrNull(1)
+val patch = versionParts.getOrNull(2)
+// 注意：非 tag 构建传进来的是 0.0.0-dev，算出来是 0 —— 而 versionCode 必须 > 0，
+// 否则 Gradle 直接报错。所以这里必须兜一个下限 1。
+val appVersionCode = if (major != null && minor != null && patch != null) {
+    (major * 10000 + minor * 100 + patch).coerceAtLeast(1)
+} else {
+    1
+}
+
 android {
     namespace = "com.jobpilot.mobile"
     compileSdk = 34
@@ -11,8 +31,8 @@ android {
         applicationId = "com.jobpilot.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     buildTypes {

@@ -92,6 +92,7 @@ class BossRunner(
     private var chatTries = 0
     private var unknownTries = 0
     private var swipeStreak = 0
+    private var needsBoss = 0
 
     /** 招呼语池。只在界面出现输入框时才用；BOSS 多数情况下会用账号设置好的招呼语自动发。 */
     private val messages = listOf(
@@ -107,6 +108,9 @@ class BossRunner(
         roundSent = 0
         roundLimit = Random.nextInt(3, 6)
         pendingKey = null
+        needsBoss = 0
+        unknownTries = 0
+        swipeStreak = 0
         status("启动中，今日已发 ${store.todayCount()}/$dailyCap")
         schedule(1500)
     }
@@ -127,20 +131,23 @@ class BossRunner(
             return
         }
 
-        val root = service.root()
+        val root = service.bossRoot()
         if (root == null) {
-            retry("拿不到界面（BOSS 不在前台？）")
+            // 【2026-11-14 真机踩到】用户点「开始」时人在 JobPilot 界面，BOSS 根本不在前台。
+            // 光提示是没用的 —— 要自己把它拉起来。但只拉 2 次：
+            // 反复 startActivity 会一直打断用户，看起来像程序疯了。
+            needsBoss++
+            if (needsBoss <= 2) {
+                val ok = service.launchBoss()
+                status(if (ok) "正在打开 BOSS…（第 $needsBoss 次）" else "打不开 BOSS：请手动点「打开 BOSS」")
+                schedule(2500)
+            } else {
+                status("等不到 BOSS：请手动切到 BOSS，再回来按「开始」")
+                schedule(5000)
+            }
             return
         }
-
-        // 【安全底线】只操作 BOSS 自己的窗口。
-        // 用户若切回 JobPilot，rootInActiveWindow 就是我们自己的页面 —— 那时如果继续"识别界面 → 返回"，
-        // 会把自己的 App 一路按退出。所以这一条必须先判。
-        if (root.packageName?.toString() != BossAccessibilityService.TARGET_PKG) {
-            status("请切到 BOSS 界面（当前：${root.packageName}）")
-            schedule(3000)
-            return
-        }
+        needsBoss = 0
 
         when (detect(root)) {
             Screen.RISK -> stop("命中平台提示（操作频繁/稍后再试），先停 30 分钟")

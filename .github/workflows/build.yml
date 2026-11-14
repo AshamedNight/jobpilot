@@ -63,6 +63,9 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
+        env:
+          # 与 Windows 那步一致：版本号由 tag 决定，APK 的 versionName / versionCode 跟着变
+          APP_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.0.0-dev' }}
         run: gradle assembleDebug --no-daemon --stacktrace
 
       - uses: actions/upload-artifact@v4

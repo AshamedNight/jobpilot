@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.graphics.Path
+import android.graphics.Rect
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -100,10 +101,54 @@ class BossAccessibilityService : AccessibilityService() {
         }
     }
 
-    // ------------------------------------------------ v0.2 自动化要用的三个动作
+    // ------------------------------------------------ v0.2 自动化要用的动作
 
-    /** 当前前台窗口的根节点。自动化每一步都要重新取，不能缓存 —— 缓存了就是在操作上一个界面。 */
-    fun root(): AccessibilityNodeInfo? = rootInActiveWindow
+    /**
+     * BOSS 的根节点。**不要用 rootInActiveWindow 直接判"BOSS 在不在"**。
+     *
+     * 【2026-11-14 真机踩到的】用户开分屏/小窗时，BOSS 明明就在屏幕上，
+     * `rootInActiveWindow` 返回的却是 JobPilot 自己（因为我们刚被点过、是活动窗口）→
+     * 引擎一直提示"请切到 BOSS 界面"，两次测试都卡在这里。
+     *
+     * 正确做法：先看活动窗口是不是 BOSS，不是就遍历 `windows`（需要
+     * `flagRetrieveInteractiveWindows`）按包名找。分屏、小窗、悬浮窗都能找到。
+     */
+    fun bossRoot(): AccessibilityNodeInfo? {
+        val active = rootInActiveWindow
+        if (active?.packageName?.toString() == TARGET_PKG) return active
+
+        val list = windows ?: return null
+        for (w in list) {
+            val r = w?.root ?: continue
+            if (r.packageName?.toString() == TARGET_PKG) return r
+        }
+        return null
+    }
+
+    /** BOSS 窗口在屏幕上的位置。分屏时它只占半屏，滑动要按这块区域算，不能用整屏。 */
+    fun bossWindowBounds(): Rect? {
+        val list = windows ?: return null
+        for (w in list) {
+            val r = w?.root ?: continue
+            if (r.packageName?.toString() != TARGET_PKG) continue
+            val rect = Rect()
+            w.getBoundsInScreen(rect)
+            if (rect.width() > 0 && rect.height() > 0) return rect
+        }
+        return null
+    }
+
+    /** 把 BOSS 拉到前台。从 Service 启动 Activity 必须带 NEW_TASK，否则抛异常。 */
+    fun launchBoss(): Boolean {
+        val intent = packageManager.getLaunchIntentForPackage(TARGET_PKG) ?: return false
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        return try {
+            startActivity(intent)
+            true
+        } catch (exc: Exception) {
+            false
+        }
+    }
 
     /** 系统返回。比找 `#iv_back` 稳：弹窗打开时它会先关弹窗。 */
     fun back(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
@@ -114,13 +159,29 @@ class BossAccessibilityService : AccessibilityService() {
      * 用 dispatchGesture 而不是找滚动容器调 ACTION_SCROLL —— RecyclerView 的滚动节点
      * 在不同版本里位置不一样，而"手指从下往上划"这个动作永远有效。
      * 需要 accessibility_service_config 里 `canPerformGestures="true"`，漏了会返回 false。
+     *
+     * 坐标以 **BOSS 窗口**为准（不是整屏）：分屏时 BOSS 只占半屏，
+     * 用整屏坐标划会划到 JobPilot 那头去。
      */
     fun swipeUp(): Boolean {
+        val bounds = bossWindowBounds()
         val dm = resources.displayMetrics
-        val x = dm.widthPixels / 2f
+        val top: Float
+        val bottom: Float
+        val x: Float
+        if (bounds != null && bounds.height() > 0) {
+            top = bounds.top.toFloat()
+            bottom = bounds.bottom.toFloat()
+            x = bounds.exactCenterX()
+        } else {
+            top = 0f
+            bottom = dm.heightPixels.toFloat()
+            x = dm.widthPixels / 2f
+        }
+        val span = bottom - top
         val path = Path().apply {
-            moveTo(x, dm.heightPixels * 0.78f)
-            lineTo(x, dm.heightPixels * 0.28f)
+            moveTo(x, top + span * 0.78f)
+            lineTo(x, top + span * 0.28f)
         }
         val stroke = GestureDescription.StrokeDescription(path, 0L, 420L)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()

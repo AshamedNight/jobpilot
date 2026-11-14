@@ -56,3 +56,24 @@ def test_risk_and_auth_do_not_use_this_path():
     pacer.last_error = "风控"
     assert pacer._track_error_streak("risk") == 0
     assert pacer._track_error_streak("auth") == 0
+
+
+def test_timeout_uses_lower_threshold():
+    """TIMEOUT 连续 2 轮就该长冷却（2026-11-14 现场）。
+
+    链条：14:47 TIMEOUT（300 秒页面打不开）→ 14:57 TIMEOUT → 15:02 ENVIRONMENT_RISK。
+    只差一次就到 3 轮阈值，但风控已经写进锁文件了。
+    """
+    from app.services.pacer import TIMEOUT_STREAK_LIMIT, streak_limit_for
+
+    assert TIMEOUT_STREAK_LIMIT == 2
+    assert streak_limit_for("search 失败（TIMEOUT）：停止本轮，未发送任何招呼") == 2
+
+
+def test_other_errors_keep_three():
+    """别的错误仍是 3 轮 —— 偶发一次 DB 锁不该直接停半小时。"""
+    from app.services.pacer import ERROR_STREAK_LIMIT, streak_limit_for
+
+    assert ERROR_STREAK_LIMIT == 3
+    assert streak_limit_for("search 失败（NETWORK_ERROR）：readonly database") == 3
+    assert streak_limit_for(None) == 3

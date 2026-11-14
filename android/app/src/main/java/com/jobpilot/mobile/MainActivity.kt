@@ -102,6 +102,14 @@ class MainActivity : Activity() {
             }
         }
         runner = fresh
+
+        // 【2026-11-14】点「开始」时人肯定在 JobPilot 界面，BOSS 大概率不在前台。
+        // 这里立刻把 BOSS 拉到前台（而不是等引擎 1.5 秒后自己拉），用户点完马上能看到动作开始。
+        // 如果 BOSS 已经在分屏/小窗里可见，bossRoot() 非空，就不打扰用户。
+        if (service.bossRoot() == null) {
+            service.launchBoss()
+        }
+
         fresh.start()
         refreshProgress()
     }
