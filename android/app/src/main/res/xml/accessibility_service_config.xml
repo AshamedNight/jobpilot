@@ -8,11 +8,13 @@
       "操作频繁"提示）才不会漏掉。
 
     canRetrieveWindowContent 必须 true，否则 rootInActiveWindow 恒为 null。
+    canPerformGestures 必须 true，否则 dispatchGesture（上滑翻页）恒返回 false。
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
     android:description="@string/accessibility_desc"
     android:notificationTimeout="100" />

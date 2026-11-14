@@ -624,12 +624,31 @@ def _verdict_of(
 @router.post("/api/run/direct-greet")
 def api_run_direct_greet(
     request: Request,
+    limit: int = 1,
     db=Depends(get_db),
     cfg: dict[str, Any] = Depends(get_config),
 ) -> dict[str, Any]:
-    """手动跑一轮（发到当日额度用完）。**HTTP 200 不等于发送成功**：看 `stats.sent_new`。
+    """手动发一条招呼（`?limit=N` 可指定，最多 5 条）。
 
-    真正"像人一样发"的入口是 `POST /api/pacing/start`（后台推进会按 90–240s 间隔
-    一条一条发）。本接口保留给"我想立刻发一批"的手动场景，口径与改造前一致。
+    **为什么默认是 1 条，而不是"发到额度用完"**（2026-11-14）：
+
+    这个接口原来不传 limit，等价于 `run_direct_greet_pass(limit=None)` = **发到当日额度用完**。
+    日额度 50、当天已发 8 条时，任何前端（网页按钮、手机 App）点一下就会**连发 42 条**，
+    而且不带 `send_gap` 就是连珠炮 —— 这是最典型的"脚本流量"形状，一次就能把账号送进风控。
+
+    **一个"点一下"的按钮永远不该触发批量发送。** 要批量就显式传 `limit`，
+    并且必须带上间隔（这里自动取 `pacing.interval_s`，90–240 秒）。
+
+    **HTTP 200 不等于发送成功**：看返回里的 `stats.sent_new`。
+    真正"像人一样发"的入口仍是 `POST /api/pacing/start`（后台推进会一条一条发）。
     """
-    return run_direct_greet_pass(request, db, cfg)
+    safe_limit = max(1, min(int(limit or 1), 5))
+    pacing_cfg = cfg.get("pacing") or {}
+    interval = pacing_cfg.get("interval_s") or [90, 240]
+    return run_direct_greet_pass(
+        request,
+        db,
+        cfg,
+        limit=safe_limit,
+        send_gap=(int(interval[0]), int(interval[1])),
+    )

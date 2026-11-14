@@ -137,8 +137,16 @@ def offline(tmp_path: Path, monkeypatch):
         yield client, cli, sock, boss_cls
 
 
-def _post(client) -> dict:
-    response = client.post("/api/run/direct-greet")
+def _post(client, limit: int | None = None) -> dict:
+    """调手动打招呼接口。`limit=None` 用接口默认值（2026-11-14 起默认 **1 条**）。
+
+    所以凡是需要"发多条"来观察轮内行为的用例，都必须显式传 limit，
+    否则只会发 1 条，断言 `len(greet_calls) == 2` 之类就会失败。
+    """
+    url = "/api/run/direct-greet"
+    if limit is not None:
+        url += f"?limit={limit}"
+    response = client.post(url)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -408,8 +416,11 @@ def test_f3_ordinary_greet_failure_summary_survives_later_success(offline):
         _Fix9Stub(plan=[_job("job_001"), _job("job_002")], greet_script=["fail", "ok"]),
     )
     client.app.state.config["quota"]["daily_greet"] = 5
+    # 要看轮内两条的相互作用，必须显式 limit=2（默认只发 1 条）；
+    # 间隔置 0，否则每条之间真 sleep 90–240 秒
+    client.app.state.config["pacing"]["interval_s"] = [0, 0]
 
-    result = _post(client)
+    result = _post(client, limit=2)
     stats = result["stats"]
 
     assert len(stub.greet_calls) == 2, "普通失败不停轮，下一条要照发"
@@ -429,8 +440,11 @@ def test_f3_already_greeted_leaves_no_fake_failure(offline):
         _Fix9Stub(plan=[_job("job_001"), _job("job_002")], greet_script=["already", "ok"]),
     )
     client.app.state.config["quota"]["daily_greet"] = 5
+    # 要看轮内两条的相互作用，必须显式 limit=2（默认只发 1 条）；
+    # 间隔置 0，否则每条之间真 sleep 90–240 秒
+    client.app.state.config["pacing"]["interval_s"] = [0, 0]
 
-    result = _post(client)
+    result = _post(client, limit=2)
     stats = result["stats"]
 
     assert stats["already_greeted"] == 1, stats

@@ -10,23 +10,34 @@ import android.widget.Button
 import android.widget.TextView
 
 /**
- * v0.1 = 节点探针。
+ * v0.2 = 能真的打招呼。
  *
- * 它不做自动化，只负责三件事：把无障碍打开、跳去 BOSS、把 BOSS 的界面节点树导出来。
- * 为什么先做这个：写点击规则之前必须先看清真实节点，否则只能靠猜 id，
- * 一个 App 改版就全线失效。这一步花半天，能省掉后面三天的反复试错。
+ * 首页只留一个主动作（开始 / 暂停）+ 两个数字（今日进度、累计）。抓取界面这套调试工具
+ * 还在，但挪到下面 —— 它是我调选择器用的，不该占用户的第一屏。
  */
 class MainActivity : Activity() {
 
     private lateinit var status: TextView
     private lateinit var output: TextView
+    private lateinit var progress: TextView
+    private lateinit var btnStart: Button
+    private lateinit var store: JobStore
+    private var runner: BossRunner? = null
+
+    private val dailyCap = 50
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        store = JobStore(applicationContext)
+
         status = findViewById(R.id.status)
         output = findViewById(R.id.output)
+        progress = findViewById(R.id.progress)
+        btnStart = findViewById(R.id.btn_start)
+
+        btnStart.setOnClickListener { toggleRunner() }
 
         findViewById<Button>(R.id.btn_accessibility).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -66,15 +77,57 @@ class MainActivity : Activity() {
             clipboard.setPrimaryClip(ClipData.newPlainText("jobpilot-dump", content))
             status.text = "已复制 ${content.length} 个字符"
         }
+
+        refreshProgress()
+    }
+
+    private fun toggleRunner() {
+        val service = BossAccessibilityService.instance
+        if (service == null) {
+            status.text = "无障碍没开：先点「开无障碍」，在列表里打开 JobPilot"
+            return
+        }
+
+        val current = runner
+        if (current != null && current.running) {
+            current.stop("手动暂停")
+            refreshProgress()
+            return
+        }
+
+        val fresh = BossRunner(service, store, dailyCap) { msg ->
+            runOnUiThread {
+                status.text = msg
+                refreshProgress()
+            }
+        }
+        runner = fresh
+        fresh.start()
+        refreshProgress()
+    }
+
+    private fun refreshProgress() {
+        progress.text = "今日 ${store.todayCount()}/$dailyCap · 累计已打 ${store.totalDone()}"
+        btnStart.text = if (runner?.running == true) {
+            getString(R.string.btn_stop)
+        } else {
+            getString(R.string.btn_start)
+        }
     }
 
     override fun onResume() {
         super.onResume()
         val service = BossAccessibilityService.instance
-        status.text = when {
-            service == null -> getString(R.string.status_unknown)
-            service.lastPackage.isEmpty() -> "无障碍：已连接"
-            else -> "无障碍：已连接（最近窗口 ${service.lastPackage}）"
+        if (service == null) {
+            status.text = getString(R.string.status_unknown)
+        } else if (runner?.running != true) {
+            status.text = "无障碍已连接，点「开始打招呼」"
         }
+        refreshProgress()
+    }
+
+    override fun onDestroy() {
+        runner?.stop("页面关闭")
+        super.onDestroy()
     }
 }

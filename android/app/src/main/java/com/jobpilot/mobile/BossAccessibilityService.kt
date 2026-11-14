@@ -1,7 +1,9 @@
 package com.jobpilot.mobile
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.content.Intent
+import android.graphics.Path
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -96,5 +98,32 @@ class BossAccessibilityService : AccessibilityService() {
             seconds < 3600 -> "${seconds / 60} 分钟前"
             else -> "${seconds / 3600} 小时前"
         }
+    }
+
+    // ------------------------------------------------ v0.2 自动化要用的三个动作
+
+    /** 当前前台窗口的根节点。自动化每一步都要重新取，不能缓存 —— 缓存了就是在操作上一个界面。 */
+    fun root(): AccessibilityNodeInfo? = rootInActiveWindow
+
+    /** 系统返回。比找 `#iv_back` 稳：弹窗打开时它会先关弹窗。 */
+    fun back(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
+
+    /**
+     * 上滑一屏。
+     *
+     * 用 dispatchGesture 而不是找滚动容器调 ACTION_SCROLL —— RecyclerView 的滚动节点
+     * 在不同版本里位置不一样，而"手指从下往上划"这个动作永远有效。
+     * 需要 accessibility_service_config 里 `canPerformGestures="true"`，漏了会返回 false。
+     */
+    fun swipeUp(): Boolean {
+        val dm = resources.displayMetrics
+        val x = dm.widthPixels / 2f
+        val path = Path().apply {
+            moveTo(x, dm.heightPixels * 0.78f)
+            lineTo(x, dm.heightPixels * 0.28f)
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0L, 420L)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        return dispatchGesture(gesture, null, null)
     }
 }

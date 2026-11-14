@@ -9,5 +9,9 @@
     <string name="btn_boss">打开 BOSS</string>
     <string name="btn_dump">抓取界面</string>
     <string name="btn_copy">复制结果</string>
-    <string name="hint">用法：先在 BOSS 里打开搜索结果页，再切回这里点「抓取界面」——抓到的是你上一次看到的界面。抓完点「复制结果」发给开发，用来校准选择器。</string>
+    <string name="hint">用法：先在 BOSS 里搜出结果列表，再回到这里点「开始打招呼」。程序会自己点开岗位、判断是否已沟通过、发送、返回。</string>
+
+    <string name="btn_start">开始打招呼</string>
+    <string name="btn_stop">暂停</string>
+    <string name="progress_none">今日 0 条</string>
 </resources>

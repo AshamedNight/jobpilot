@@ -138,8 +138,12 @@ def offline(tmp_path: Path, monkeypatch):
         yield client, cli, sock, boss_cls
 
 
-def _post(client) -> dict:
-    response = client.post("/api/run/direct-greet")
+def _post(client, limit: int | None = None) -> dict:
+    """调手动打招呼接口。`limit=None` 用接口默认值（2026-11-14 起默认 1 条）。"""
+    url = "/api/run/direct-greet"
+    if limit is not None:
+        url += f"?limit={limit}"
+    response = client.post(url)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -208,7 +212,11 @@ def test_g1_direct_greet_sends_without_detail_scoring_or_llm(offline):
     client.app.state.config["quota"]["daily_greet"] = 5
     client.app.state.config["quota"]["daily_detail"] = 50
 
-    result = _post(client)
+    # 批内间隔来自 `pacing.interval_s`（90–240 秒）。测试里必须置 0：
+    # 否则 3 条就要真 sleep 两次 2 分钟，整个套件会被拖到超时。
+    client.app.state.config["pacing"]["interval_s"] = [0, 0]
+
+    result = _post(client, limit=3)
     assert result["ok"] is True, result
     stats = result["stats"]
     assert stats["found"] == 3
@@ -253,6 +261,40 @@ def test_g1_direct_greet_sends_without_detail_scoring_or_llm(offline):
 # --------------------------------------------------------------------------- #
 # 2 · 去重与额度：先筛历史 claim 再截日额度
 # --------------------------------------------------------------------------- #
+def test_g1b_manual_endpoint_defaults_to_single_send(offline):
+    """`/api/run/direct-greet` 默认只发 **1 条**（2026-11-14）。
+
+    原来不传 limit，等价于 `limit=None` = **发到当日额度用完**。
+    日额度 50、当天已发 8 条时，任何前端（网页按钮、手机 App）点一下就会
+    **连发 42 条**，而且没有 `send_gap` 就是连珠炮 —— 这是最典型的脚本形状，
+    一次就能把账号送进风控。
+
+    **一个"点一下"的按钮永远不该触发批量发送。**
+    """
+    client, *_ = offline
+    plan = [_job("job_006", jd_text=""), _job("job_007", jd_text=""), _job("job_004", jd_text="")]
+    _use(client, _DirectStub(plan=plan))
+    client.app.state.config["quota"]["daily_greet"] = 5
+    client.app.state.config["pacing"]["interval_s"] = [0, 0]
+
+    result = _post(client)  # 不传 limit，走默认
+    stats = result["stats"]
+    assert stats["eligible"] == 3, "三个都符合条件"
+    assert stats["sent_new"] == 1, f"默认只许发 1 条，实际 {stats['sent_new']}"
+
+
+def test_g1c_manual_limit_is_respected(offline):
+    """显式传 `?limit=2` 才发 2 条 —— 批量发送必须是**有意识的选择**。"""
+    client, *_ = offline
+    plan = [_job("job_006", jd_text=""), _job("job_007", jd_text=""), _job("job_004", jd_text="")]
+    _use(client, _DirectStub(plan=plan))
+    client.app.state.config["quota"]["daily_greet"] = 5
+    client.app.state.config["pacing"]["interval_s"] = [0, 0]
+
+    result = _post(client, limit=2)
+    assert result["stats"]["sent_new"] == 2
+
+
 def test_g2_dedup_and_quota_shared_ledger_with_sweep(offline):
     """同一轮里同时存在：重复项、缺 job_id、缺 security_id、历史已 claim、额度只剩 1。
 

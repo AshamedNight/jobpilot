@@ -357,8 +357,19 @@ def test_status_endpoint_exposes_rhythm(client):
     data = client.get("/api/pacing/status").json()
     for key in ("enabled", "running", "used", "target", "segments", "interval_s", "round", "pool_size"):
         assert key in data, f"状态里缺 {key}"
-    assert data["interval_s"] == [90, 240]
-    assert data["round"] == [3, 5]
+
+    # 【2026-11-14】原来这里写死 `interval_s == [90, 240]` / `round == [3, 5]`。
+    # 节奏是**每天可能要调的经营参数**（11-14 就把 round 从 [3,5] 改成 [4,4]
+    # 去对齐 send_batch），写死会让「正常调参」变成「测试变红」——
+    # 红灯一旦变成噪音，真出问题时没人看了。
+    # 所以这里只断言**结构与合法性边界**：两项、有序、不超过启动校验的上限。
+    interval = data["interval_s"]
+    assert isinstance(interval, list) and len(interval) == 2
+    assert 0 < interval[0] <= interval[1]
+
+    rnd = data["round"]
+    assert isinstance(rnd, list) and len(rnd) == 2
+    assert 0 < rnd[0] <= rnd[1] <= 8, "round 上限超过 8 启动就报错（见 parse_config 校验）"
 
 
 def test_stop_is_idempotent(client):
