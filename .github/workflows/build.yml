@@ -94,6 +94,10 @@ jobs:
 
       - name: Build installer
         shell: pwsh
+        env:
+          # 版本号从 tag 推出来（v0.2.0 → 0.2.0）；非 tag 构建标成 dev，
+          # 别让一个开发包冒充发行版。写入 .iss 的 AppVersion，输出文件名跟着变。
+          APP_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.0.0-dev' }}
         run: |
           $candidates = @(
             "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
@@ -105,10 +109,12 @@ jobs:
                      Select-Object -First 1).FullName
           }
           if (-not $iscc) { Write-Host "::error::找不到 ISCC.exe"; exit 1 }
+          $ver = $env:APP_VERSION.TrimStart('v')
           Write-Host "ISCC = $iscc"
+          Write-Host "版本 = $ver"
           Write-Host "--- dist/jobpilot 前 5 项 ---"
           Get-ChildItem "dist\jobpilot" -ErrorAction SilentlyContinue | Select-Object -First 5 Name
-          & $iscc "packaging\inno\jobpilot.iss"
+          & $iscc "/DAppVersion=$ver" "packaging\inno\jobpilot.iss"
           if ($LASTEXITCODE -ne 0) { Write-Host "::error::ISCC 退出码 $LASTEXITCODE（报错行就在上面）"; exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v4
@@ -125,6 +131,10 @@ jobs:
     needs: [android, windows]
     runs-on: ubuntu-latest
     steps:
+      # 必须有 checkout：下面 body_path 要读 RELEASE_NOTES.md，
+      # 只下载 artifact 的话工作区里没有这个文件，action 会直接失败。
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -138,4 +148,6 @@ jobs:
           files: |
             dist/**/*.apk
             dist/**/*.exe
-          generate_release_notes: true
+          # 正文用仓库里的 RELEASE_NOTES.md：下载的人最需要知道的是能力边界，
+          # 不是一长串 commit 标题。改说明 = 改这个文件 + 提交，不用进 GitHub 网页。
+          body_path: RELEASE_NOTES.md

@@ -13,7 +13,14 @@
 ; "当前工作目录"，Program Files 普通用户没写权限，首次运行就失败。per-user 还免 UAC。
 
 #define AppName "JobPilot"
-#define AppVersion "0.1.0"
+
+; 版本号不写死：CI 用 `ISCC /DAppVersion=0.2.0` 传进来。
+; 【踩过】写死的结果 —— APK 发的是 v0.2.0，安装包却叫 JobPilot-Setup-0.1.0.exe，
+; 用户根本分不清哪个是新的。本地直接编译（不传 /D）时用下面这个默认值。
+#ifndef AppVersion
+#define AppVersion "0.2.0"
+#endif
+
 #define AppExe "jobpilot.exe"
 #define RepoRoot "..\.."
 
