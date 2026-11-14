@@ -14,4 +14,5 @@
     <string name="btn_start">开始打招呼</string>
     <string name="btn_stop">暂停</string>
     <string name="progress_none">今日 0 条</string>
+    <string name="scope_note">当前版本只做「打招呼」。HR 回复后的聊天和换微信，请仍在 BOSS 里手动处理——自动回复 / 自动换微信仍是 review 闸门，未开放。</string>
 </resources>
