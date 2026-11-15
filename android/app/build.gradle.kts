@@ -27,6 +27,31 @@ android {
     namespace = "com.jobpilot.mobile"
     compileSdk = 34
 
+    // 【2026-11-15】签名密钥从 CI 环境变量读 —— 仓库里不放私钥。
+    //
+    // 背景：以前 CI 每次新建 debug keystore → 每次签名都不同 → 无法覆盖安装 → 只能卸载 →
+    // SharedPreferences（今日计数 / 已打记录）被清空。签名固定后这些问题一起消失。
+    //
+    // 三个变量由 workflow 注入：
+    //   KEYSTORE_FILE   .p12 的绝对路径（CI 从 secret KEYSTORE_B64 解码到 $RUNNER_TEMP）
+    //   KEYSTORE_PASS   密钥口令（secret KEYSTORE_PASS）
+    //   KEYSTORE_ALIAS  别名，默认 jobpilot
+    //
+    // 本地没有 secrets 时回退到 "testkey.p12"（该文件**不入库**）——
+    // 想在本地出包，得自己先 `openssl pkcs12 -export ... -out android/app/testkey.p12`。
+    signingConfigs {
+        create("stable") {
+            val ksFile = System.getenv("KEYSTORE_FILE").orEmpty().ifBlank { "testkey.p12" }
+            val ksPass = System.getenv("KEYSTORE_PASS").orEmpty().ifBlank { "jobpilot-test-2026" }
+            val ksAlias = System.getenv("KEYSTORE_ALIAS").orEmpty().ifBlank { "jobpilot" }
+            storeFile = file(ksFile)
+            storeType = "PKCS12"
+            storePassword = ksPass
+            keyAlias = ksAlias
+            keyPassword = ksPass
+        }
+    }
+
     defaultConfig {
         applicationId = "com.jobpilot.mobile"
         minSdk = 26
@@ -36,8 +61,13 @@ android {
     }
 
     buildTypes {
-        release {
+        // debug 也签这把：CI 出的就是 debug 包，但签名必须和下次一致，才能覆盖安装。
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("stable")
+        }
+        getByName("release") {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("stable")
         }
     }
 

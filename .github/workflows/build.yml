@@ -61,11 +61,27 @@ jobs:
           echo "$HOME/gradle-dist/gradle-8.2/bin" >> "$GITHUB_PATH"
           "$HOME/gradle-dist/gradle-8.2/bin/gradle" --version
 
+      # 私钥不进仓库：仓库 Secrets 里放 base64，构建时解码到临时目录，
+      # 再用 KEYSTORE_FILE 告诉 Gradle 去哪找。runner 是一次性的，用完即销毁。
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::仓库 Secrets 缺少 KEYSTORE_B64 —— 没有签名密钥就打不出能覆盖安装的包"
+            echo "::error::设置路径：Settings → Secrets and variables → Actions → New repository secret"
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/jobpilot.p12"
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/jobpilot.p12" >> "$GITHUB_ENV"
+          echo "密钥已解码：$(wc -c < "$RUNNER_TEMP/jobpilot.p12") 字节"
+
       - name: Build debug APK
         working-directory: android
         env:
           # 与 Windows 那步一致：版本号由 tag 决定，APK 的 versionName / versionCode 跟着变
           APP_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.0.0-dev' }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
         run: gradle assembleDebug --no-daemon --stacktrace
 
       - uses: actions/upload-artifact@v4
