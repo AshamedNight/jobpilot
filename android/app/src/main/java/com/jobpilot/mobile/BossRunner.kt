@@ -79,11 +79,29 @@ class BossRunner(
     private val onStatus: (String) -> Unit,
 ) {
 
+    companion object {
+        /** 当前在跑的引擎。给通知栏的「暂停」按钮用 —— 那条广播拿不到 Activity 里的引用。 */
+        @Volatile
+        var active: BossRunner? = null
+    }
+
     private val handler = Handler(Looper.getMainLooper())
+    private val notifier = Notifier(service.applicationContext)
 
     @Volatile
     var running = false
         private set
+
+    /**
+     * 下一次动作的**绝对时间**（epoch 毫秒），0 表示没有排期。
+     * 界面每秒拿它算倒计时；通知栏拿它显示「下一条 10:09:30」。
+     * 之前只写一句静态的「下一条约 97 秒后」，数字永远不变 —— 看着就像卡死了。
+     */
+    @Volatile
+    var nextTickAt: Long = 0L
+        private set
+
+    private var lastStatus: String = "启动中"
 
     private var roundSent = 0
     private var roundLimit = Random.nextInt(3, 6)
@@ -105,6 +123,7 @@ class BossRunner(
     fun start() {
         if (running) return
         running = true
+        active = this
         roundSent = 0
         roundLimit = Random.nextInt(3, 6)
         pendingKey = null
@@ -118,7 +137,10 @@ class BossRunner(
     fun stop(reason: String) {
         running = false
         handler.removeCallbacksAndMessages(null)
+        nextTickAt = 0L
+        if (active === this) active = null
         status("已停止：$reason")
+        notifier.clear()
     }
 
     // ------------------------------------------------------------------ tick
@@ -349,11 +371,11 @@ class BossRunner(
             roundSent = 0
             roundLimit = Random.nextInt(3, 6)
             val wait = Random.nextLong(5 * 60_000L, 10 * 60_000L)
-            status("本轮结束，休息 ${wait / 60_000} 分钟")
+            status("本轮结束，长休息中")
             schedule(wait)
         } else {
             val wait = Random.nextLong(60_000L, 150_000L)
-            status("下一条约 ${wait / 1000} 秒后")
+            status("间隔等待中")
             schedule(wait)
         }
     }
@@ -363,13 +385,27 @@ class BossRunner(
         schedule(3000)
     }
 
+    /**
+     * 排下一次动作。这里同时是**唯一**刷新通知的地方：
+     * 所有状态变更都紧跟着一次 schedule（stop 除外，它自己清通知），
+     * 所以不必在每个 status() 里重复发通知。
+     */
     private fun schedule(ms: Long) {
-        if (!running) return
+        if (!running) {
+            nextTickAt = 0L
+            return
+        }
         handler.removeCallbacksAndMessages(null)
-        handler.postDelayed({ tick() }, ms)
+        nextTickAt = System.currentTimeMillis() + ms
+        handler.postDelayed({
+            nextTickAt = 0L
+            tick()
+        }, ms)
+        notifier.update(lastStatus, nextTickAt, store.todayCount(), dailyCap)
     }
 
     private fun status(msg: String) {
+        lastStatus = msg
         onStatus(msg)
     }
 

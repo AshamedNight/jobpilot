@@ -99,6 +99,17 @@
             android:text="@string/status_unknown"
             android:textColor="@color/text"
             android:textSize="15sp" />
+
+        <!-- 实时倒计时。之前状态行只写一句「下一条约 97 秒后」然后就不动了，
+             用户会以为程序卡死。这一行由 MainActivity 每 0.5 秒刷一次。 -->
+        <TextView
+            android:id="@+id/countdown"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/brand"
+            android:textSize="13sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <Button
