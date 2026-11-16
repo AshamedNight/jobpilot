@@ -126,3 +126,22 @@ def test_service_down_is_red(monkeypatch):
     ok, detail = pf.check_service(8010)
     assert ok is False
     assert "不可达" in detail
+
+
+def test_config_rejects_non_boss_adapter():
+    """adapter 不是 boss 就会跑假数据 —— 看着正常，其实一条都没发。
+
+    这两条是从已废弃的 start-jobpilot.ps1 搬过来的，它的注释写着"这个坑踩过 4 次了"。
+    """
+    cfg = {"adapter": "fake", "target": {"search_url": "https://x"}, "pacing": {}, "quota": {}}
+    ok, detail = pf.check_config(cfg)
+    assert ok is False
+    assert "假数据" in detail
+
+
+def test_config_rejects_empty_search_url():
+    """search_url 为空会走 --city 触发 INVALID_PARAM，白烧一次请求。"""
+    cfg = {"adapter": "boss", "target": {}, "pacing": {}, "quota": {"daily_greet_max": 50}}
+    ok, detail = pf.check_config(cfg)
+    assert ok is False
+    assert "search_url" in detail

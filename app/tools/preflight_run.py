@@ -176,6 +176,16 @@ def check_env(record: bool) -> tuple[bool, str]:
 def check_config(cfg: dict) -> tuple[bool, str]:
     from app.core import pacing as pacing_mod
 
+    # 【2026-11-16】从已废弃的 start-jobpilot.ps1 搬过来的两条防呆。
+    # 那个脚本的注释写着"这个坑踩过 4 次了"——config.yaml 被覆盖回默认值时，
+    # adapter 会变回 fake（跑假数据、看着正常其实什么都没发），
+    # target.search_url 会变空（走 --city 触发 INVALID_PARAM）。
+    # 这两条必须在起跑前拦住，否则"跑了一天"其实全是假的。
+    if cfg.get("adapter") != "boss":
+        return False, f"adapter={cfg.get('adapter')!r}，不是 boss → 会跑假数据，先修 config.yaml"
+    if not (cfg.get("target") or {}).get("search_url"):
+        return False, "target.search_url 为空 → 会触发 INVALID_PARAM，先补上搜索 URL"
+
     pcfg = cfg.get("pacing") or {}
     quota = cfg.get("quota") or {}
     cap = int(quota.get("daily_greet_max") or 0)

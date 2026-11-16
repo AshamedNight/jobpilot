@@ -559,9 +559,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\n下一步（脚本不替你做）：")
     print("  1) 重启服务（改过 Python/前端才需要；仅恢复风控时也要重启，进程里可能留着 fail-closed 标记）")
-    print("     powershell -ExecutionPolicy Bypass -File .\\start-jobpilot.ps1")
-    print("  2) Invoke-RestMethod -Method Post http://127.0.0.1:8010/api/pacing/start")
+    print("     .\\.venv2\\Scripts\\python.exe -m app.tools.launch --detach --no-start")
+    print("  2) 【必须等 10-15 分钟】再起跑。探测是一次搜索，起跑是连续搜索；")
+    print("     2026-11-15 现场：17:11 探测放行（231s），17:12 起跑，17:14 第一轮就被 ENVIRONMENT_RISK 拒掉。")
+    print("     .\\.venv2\\Scripts\\python.exe -m app.tools.launch --detach --cap 20 --delay-min 12")
+    print("     （--delay-min 会真的等，命令行停在那儿是正常的）")
     print("  3) 3-5 分钟后看 /api/pacing/status 的 inflight；inflight=false 才有资格看 last_verdict")
+    print("  4) 探测耗时也是信号：正常单页约 105s，超过 200s 说明环境仍在边缘，当天只跑小批量")
     return 0
 
 

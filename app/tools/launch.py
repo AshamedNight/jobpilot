@@ -2,9 +2,14 @@
 
 ## 为什么用 Python 而不是 PowerShell
 
-原 `start-jobpilot.ps1` 每天要人做四件事：判断端口有没有被占、启动、记得点"开始"、开页面。
+原启动脚本（`start-jobpilot.ps1`，2026-11-16 已删除）每天要人做四件事：
+判断端口有没有被占、启动、记得点"开始"、开页面。
 其中"端口被占"今天就真实卡了一次（`[Errno 10048]`，因为上一个实例没关），
 而且 PowerShell 5.1 读不带 BOM 的 UTF-8 脚本会把中文注释读成乱码。
+
+> 删掉它的原因：它把 `JOBPILOT_DB` / `CHROME_PROFILE_DIR` 写死成 B 号，
+> 用完账号体系后已经无法表达"今天跑哪个号"。它里面那两条防呆检查
+> （adapter 必须是 boss、search_url 不能为空）已搬进 `app.tools.preflight_run`。
 
 这个启动器把四件事合成一条命令，且**只杀属于自己的进程**：
 8010 的占用者必须是"本项目路径下的 python"，否则报错退出。别人的进程一律不碰。
@@ -181,6 +186,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--open", action="store_true", help="就绪后打开控制台页面")
     parser.add_argument("--detach", action="store_true", help="后台起服务，本命令立即返回")
     parser.add_argument("--no-start", action="store_true", help="只起服务，不调 /api/pacing/start")
+    parser.add_argument(
+        "--delay-min",
+        type=float,
+        default=0,
+        help="起跑前先等这么多分钟。刚跑完 recover 探测时用 10-15，"
+        "避免「探测结束 1 分钟就开始连续搜索」把放行结果自己作废（2026-11-15 现场）",
+    )
     args = parser.parse_args(argv)
 
     # 0) 多账号并行（闭环 3）：`--account` 直接指定，优先于指针文件。
@@ -233,6 +245,20 @@ def main(argv: list[str] | None = None) -> int:
 
     # 5) 起跑
     if not args.no_start:
+        # 【2026-11-15 事故】起跑前允许延迟，因为「探测通过」不等于「可以连续搜索」：
+        #   17:11 单页探测放行（231s，正常只要 105s），17:12 立刻起跑，
+        #   17:14 第一轮 search 就被 ENVIRONMENT_RISK 拒掉 —— 2 分钟内两次搜索，
+        #   正好是 11-12 记录过的敏感形状。一次成功的探测就这样被自己的起跑浪费了。
+        if args.delay_min > 0:
+            wait_s = int(args.delay_min * 60)
+            eta = time.strftime("%H:%M:%S", time.localtime(time.time() + wait_s))
+            print(f"延迟起跑：先等 {args.delay_min:g} 分钟（{wait_s}s），预计 {eta} 开跑")
+            print("  理由：探测刚结束时环境仍在恢复，紧接着连续搜索容易被判异常")
+            try:
+                time.sleep(wait_s)
+            except KeyboardInterrupt:
+                print("已取消延迟起跑（服务仍在运行，可稍后手动 start）")
+                return 0
         path = f"/api/pacing/start?cap={args.cap}" if args.cap > 0 else "/api/pacing/start"
         try:
             resp = _api(path, args.port, method="POST")

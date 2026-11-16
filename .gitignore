@@ -33,3 +33,22 @@ config.yaml.bak-*
 # PyInstaller / Inno 的中间产物
 *.spec.bak
 
+# ---- 2026-11-16 Android 侧：签名与本地路径，绝不能被 git add -A 带上去 ----
+# local.properties 里有 sdk.dir=C:\Users\<你的用户名>\AppData\Local\Android\Sdk，
+# 是最容易被“顺手提交”的一个文件（Android Studio 自动生成，很多人以为它是源码）。
+android/local.properties
+local.properties
+# 签名文件：仓库里一旦出现 keystore，等于把发布权限公开
+*.jks
+*.keystore
+*.p12
+# Gradle 缓存与构建产物（build/ 的通用规则在上面，这里补 .gradle 与产物）
+android/.gradle/
+.gradle/
+*.apk
+*.aab
+# IDE 与调试抓取
+.idea/
+captures/
+
+
