@@ -32,6 +32,8 @@ python -m app.tools.preflight_repo --fix-hint   # 附带修复建议
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import posixpath
 import re
 import subprocess
 import sys
@@ -40,15 +42,29 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 #: 这些路径出现在跟踪列表里就直接判失败（不是内容问题，是文件本身不该在）
-FORBIDDEN_TRACKED = (
+#: 目录/路径前缀：命中即违规（虚拟环境、运行数据、浏览器资料）
+FORBIDDEN_PREFIXES = (
     ".venv",
     "data/",
-    "config.yaml",
-    ".env",
     "chrome-boss",
     ".boss-agent",
-    "pacer_state",
-    "probe_budget",
+)
+
+#: 精确文件名：命中即违规（`.example` 模板不算，见下面判断）
+FORBIDDEN_NAMES = (
+    "config.yaml",
+    ".env",
+)
+
+#: glob 模式：运行产物（按扩展名判断，不按文件名子串——
+#: 否则 `probe_budget.py` 这种源码会被误判）
+FORBIDDEN_GLOBS = (
+    "pacer_state*.json",
+    "probe_budget.json",
+    "supervise.log",
+    "*.db",
+    "*.db-wal",
+    "*.db-shm",
 )
 
 #: 内容里的敏感样式
@@ -59,7 +75,26 @@ PATTERNS = {
 }
 
 #: 允许出现在文档示例里的占位符
-ALLOWED_PLACEHOLDERS = ("<you>", "<用户名>", "C:\\Users\\<")
+#: 允许出现的占位符。
+#:
+#: 【2026-11-16】这次补了一批。判据是：**一看就知道是假的**。
+#: 这个工具的目的是防「手滑把真实数据提交上去」，不是防测试夹具——
+#: 而 alice / bob / x 是密码学教科书的标配假名，{user} 是模板占位符。
+#: 严格到把测试夹具也报红，结果就是红灯变噪音，真泄露反而没人看。
+ALLOWED_PLACEHOLDERS = (
+    "<you>",
+    "<用户名>",
+    "C:\\Users\\<",
+    "{user}",
+    "{username}",
+    "{用户名}",
+    "/Users/alice",
+    "/Users/bob",
+    "/Users/x",
+    "\\Users\\alice",
+    "\\Users\\bob",
+    "\\Users\\x",
+)
 
 #: 公知的假数据（测试夹具用），不算泄露。只放"一看就是编的"值。
 ALLOWED_SAMPLES = frozenset({"13800138000", "wxid_lawyer2026"})
@@ -102,6 +137,26 @@ def scan_text(text: str, path: str = "") -> list[str]:
     return problems
 
 
+def is_forbidden_path(path: str) -> bool:
+    """这个被跟踪的路径是否属于「绝不该入库」的那几类。
+
+    抽成纯函数是为了能单测——这段判定写错的后果是**绿灯骗人**（真泄露不报）。
+
+    【2026-11-16 误报修复】原来用 `bad in lowered` 做子串匹配，于是
+    `app/core/probe_budget.py`（源码！）会因为名字里含 "probe_budget" 被判违规，
+    `tests/test_pacer_state_isolation.py` 同理。那次 9 个告警里 3 个是这种。
+    红灯一旦变成噪音，真泄露就没人看了。现在分三类：目录前缀 / 精确文件名 / glob。
+    """
+    lowered = path.lower().replace(chr(92), "/")
+    name = posixpath.basename(lowered)
+    for prefix in FORBIDDEN_PREFIXES:
+        if lowered.startswith(prefix) or f"/{prefix}" in lowered:
+            return True
+    if name in FORBIDDEN_NAMES:
+        return True
+    return any(fnmatch.fnmatch(name, pattern) for pattern in FORBIDDEN_GLOBS)
+
+
 def check() -> list[str]:
     problems: list[str] = []
     files = tracked_files()
@@ -109,17 +164,8 @@ def check() -> list[str]:
         return ["读不到 git 跟踪列表（不是 git 仓库？）"]
 
     for path in files:
-        lowered = path.lower()
-        for bad in FORBIDDEN_TRACKED:
-            if bad in lowered:
-                # 允许 example 模板
-                if bad == "config.yaml" and path.endswith("config.example.yaml"):
-                    continue
-                # `.env.example` 是模板，故意提交；只有真正的 `.env` 不许入库
-                if bad == ".env" and path.endswith(".env.example"):
-                    continue
-                problems.append(f"不该被跟踪的文件：{path}")
-                break
+        if is_forbidden_path(path):
+            problems.append(f"不该被跟踪的文件：{path}")
 
     for path in files:
         full = PROJECT_ROOT / path
