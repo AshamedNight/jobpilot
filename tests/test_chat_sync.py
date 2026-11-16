@@ -88,3 +88,33 @@ def test_bad_unread_does_not_crash():
 def test_limit_floor_is_one():
     # limit=0 或负数不该让工具"什么都不做"，至少处理 1 个
     assert len(pick_targets([_conv("a", unread=1)], {}, limit=0)) == 1
+
+
+def test_epoch_handles_chatmsg_style_without_year():
+    """上游 chatmsg 的 timestamp 是 '11-16 09:57'（无年份）。
+
+    不认这个格式 → last_msg_at 落库后解析成 None → 同一批会话被无限重复抓。
+    这是 2026-11-16 真机踩到的死循环。
+    """
+    value = to_epoch("11-16 09:57")
+    assert value is not None
+    # 补的年份只能是今年或去年（跨年场景），绝不能落回 1970
+    import datetime as _dt
+    year = _dt.datetime.fromtimestamp(value).year
+    assert year in (_dt.datetime.now().year, _dt.datetime.now().year - 1)
+    assert "11-16" in _dt.datetime.fromtimestamp(value).strftime("%m-%d")
+
+
+def test_epoch_handles_chatmsg_style_without_year():
+    """上游 chatmsg 的 timestamp 是 '11-16 09:57'（无年份）。
+
+    不认这个格式 → last_msg_at 落库后解析成 None → 同一批会话被无限重复抓。
+    这是 2026-11-16 真机踩到的死循环。
+    """
+    value = to_epoch("11-16 09:57")
+    assert value is not None
+    # 补的年份只能是今年或去年（跨年场景），绝不能落回 1970
+    import datetime as _dt
+    year = _dt.datetime.fromtimestamp(value).year
+    assert year in (_dt.datetime.now().year, _dt.datetime.now().year - 1)
+    assert "11-16" in _dt.datetime.fromtimestamp(value).strftime("%m-%d")

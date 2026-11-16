@@ -66,7 +66,24 @@ def to_epoch(value: Any) -> float | None:
     try:
         return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
     except ValueError:
-        return None
+        pass
+
+    # `"11-16 09:57"`（月-日 时:分，**没有年份**）—— 上游 `chatmsg.timestamp` 就是这个格式。
+    # 不认它会把 last_msg_at 解析成 None，进而让同一批会话被无限重复抓
+    # （2026-11-16 真机踩到：第二轮又选中了同样的 5 个，新增 0 条）。
+    # 补今年；算出来比现在还晚就说明是去年的（跨年）。
+    for fmt in ("%m-%d %H:%M", "%m-%d %H:%M:%S"):
+        try:
+            parsed = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        now = datetime.now()
+        candidate = parsed.replace(year=now.year)
+        if candidate > now:
+            candidate = candidate.replace(year=now.year - 1)
+        return candidate.timestamp()
+
+    return None
 
 
 def pick_targets(

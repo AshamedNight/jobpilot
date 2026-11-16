@@ -34,14 +34,37 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import random
 import sqlite3
 import sys
+import time
+import urllib.request
+from datetime import datetime, timezone
 from typing import Any
 
 from app import models
 from app.core import chat_sync, exchange
 from app.core.state_machine import Event, can_transition, transition
+
+
+def _pacer_running(port: int = 8010) -> bool | None:
+    """问本地服务：pacer 现在在不在跑。
+
+    返回 `None` 表示问不到（服务没起），调用方应当把它当"未知"处理，
+    **不能**当"没在跑"——2026-11-16 我就是这么踩的：
+    看 `pacer_state_b.json` 里没有 `running` 字段就断定"没起跑"，
+    实际那个字段根本不落盘，pacer 当天 10:07 已经在跑，
+    我 10:12 开始连发 7 次请求，10:18 直接把环境推进了 ENVIRONMENT_RISK。
+    """
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/pacing/status", timeout=4
+        ) as resp:
+            return bool(json.loads(resp.read().decode("utf-8")).get("running"))
+    except Exception:  # noqa: BLE001 - 连不上就是"不知道"
+        return None
 
 
 def _advance(state: str, event: Event) -> str:
@@ -51,6 +74,19 @@ def _advance(state: str, event: Event) -> str:
     不接受这条边，就把整轮同步打断。
     """
     return transition(state, event.value) if can_transition(state, event.value) else state
+
+
+def _to_iso(epoch: float | None) -> str | None:
+    """epoch 秒 → ISO 字符串。
+
+    【踩过的坑】上游 `chatmsg` 的 `timestamp` 是 `"11-16 09:57"`（月-日 时:分，**没有年份**）。
+    直接把它当 `last_msg_at` 写库，`to_epoch` 解析不出来 → 当成 0 →
+    下一轮又判定"有新消息"→ 同一个会话被反复抓，永远抓不完。
+    所以回写一律用 `chat()` 给的精确 `last_ts`（epoch）归一成 ISO。
+    """
+    if epoch is None:
+        return None
+    return datetime.fromtimestamp(epoch, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _store_messages(db: sqlite3.Connection, uid: str, messages: list[dict[str, Any]]) -> int:
@@ -108,7 +144,25 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--apply", action="store_true", help="真的调 chatmsg 并写库")
     ap.add_argument("--limit", type=int, default=5, help="一轮最多处理几个会话（默认 5）")
     ap.add_argument("--db", default=None, help="覆盖数据库路径（默认取 JOBPILOT_DB）")
+    ap.add_argument("--gap", type=float, default=15.0,
+                    help="每个会话之间等待的秒数（默认 15，0 表示不等待）")
+    ap.add_argument("--force", action="store_true",
+                    help="pacer 正在跑时也执行（不建议：两边请求叠加就是风控）")
     args = ap.parse_args(argv)
+
+    # 前置闸门：先问 pacer 在不在跑。这一步比什么都重要 ——
+    # 抓消息和打招呼打的是同一个平台，叠加起来就是我们一直在避免的"脚本形状"。
+    pacer_state = _pacer_running()
+    if pacer_state is True and not args.force:
+        print("✗ pacer 正在跑 —— 拒绝执行。")
+        print("  两边都在打平台请求，叠加会直接触发 ENVIRONMENT_RISK。")
+        print("  先停：curl -X POST http://127.0.0.1:8010/api/pacing/stop")
+        print("  （确认要硬来就加 --force，风险自负）")
+        return 2
+    if pacer_state is None:
+        print("⚠ 没连上本地服务（8010），无法确认 pacer 是否在跑。请自己确认后再继续。\n")
+    elif pacer_state is False:
+        print("pacer 未运行 ✓\n")
 
     from app.config import load_config
 
@@ -128,6 +182,10 @@ def main(argv: list[str] | None = None) -> int:
     local = {c["uid"]: c.get("last_msg_at") for c in models.list_conversations(db)}
     targets = chat_sync.pick_targets(remote, local, args.limit)
 
+    remote_by_uid: dict[str, dict[str, Any]] = {
+        str(c["uid"]): c for c in remote if c.get("uid")
+    }
+
     if not targets:
         print("没有需要跟进的新消息。")
         return 0
@@ -145,7 +203,12 @@ def main(argv: list[str] | None = None) -> int:
     replied = 0
     wechat_got = 0
 
-    for cand in targets:
+    for index, cand in enumerate(targets):
+        if index > 0 and args.gap > 0:
+            wait = random.uniform(args.gap * 0.7, args.gap * 1.3)
+            print(f"\n  等 {wait:.0f} 秒（人不会连珠炮地翻会话）…", end="")
+            time.sleep(wait)
+
         print(f"\n→ 抓 {cand.uid} …", end=" ")
         messages = adapter.chatmsg(cand.uid)
         if not messages:
@@ -181,12 +244,27 @@ def main(argv: list[str] | None = None) -> int:
             wechat_got += 1
             state = _advance(state, Event.EXCHANGE_DONE)
 
-        last_at = max((m.get("created_at") or "" for m in stored), default="") or None
+        last_at = _to_iso(cand.last_epoch)
 
-        fields: dict[str, Any] = {"reply_count": len(inbound), "last_msg_at": last_at}
+        fields: dict[str, Any] = {"reply_count": len(inbound)}
+        if last_at:
+            fields["last_msg_at"] = last_at
         if wechat_id:
             fields["wechat_id"] = wechat_id
             fields["wechat_source"] = "chatmsg"
+
+        # 【踩过的坑】先 upsert 再写状态：`set_conversation_state` 是 UPDATE，
+        # 会话不在表里时影响 0 行且**不报错**，数据会被静默丢掉
+        # （张军锋那条就是这样没写进去的）。
+        conv_remote = remote_by_uid.get(cand.uid, {})
+        models.upsert_conversation(
+            db,
+            cand.uid,
+            job_id=conv_remote.get("job_id"),
+            hr_name=conv_remote.get("hr_name"),
+            company=conv_remote.get("company"),
+            state=state,
+        )
         models.set_conversation_state(db, cand.uid, state, **fields)
 
         print(f"新增 {added} 条，状态 → {state}" + (f"，微信号 {wechat_id}" if wechat_id else ""))
